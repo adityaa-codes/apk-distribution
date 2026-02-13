@@ -1,0 +1,14 @@
+.env
+service-account.json
+credentials.json
+token.json
+
+# IDE / Editor
+.idea/
+.vscode/
+*.iml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
