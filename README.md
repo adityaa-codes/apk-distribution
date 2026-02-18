@@ -38,7 +38,7 @@ bump version → build APK → upload to Google Drive → notify via Telegram
 Run the helper script to verify your build environment before using the pipeline:
 
 ```bash
-python env_check.py --project /path/to/your/android/project
+apkdist-env-check --project /path/to/your/android/project
 ```
 
 Example output:
@@ -61,15 +61,51 @@ Example output:
 
 ## Setup
 
-### 1. Install Dependencies
+### 1. Install (Global CLI via pipx)
+
+Install directly from PyPI (recommended):
 
 ```bash
-pip install -r requirements.txt
+pipx install apk-distribution-pipeline
 ```
 
-### 2. Create a `.env` File
+Install directly from GitHub (works even before PyPI publish):
 
-Create a `.env` file in the same directory as `main.py`:
+```bash
+pipx install git+https://github.com/adityaa-codes/apk-distribution.git
+```
+
+From a local checkout:
+
+```bash
+pipx install .
+```
+
+If `pipx` is not installed yet:
+
+```bash
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+```
+
+### 2. Development Install (Contributors)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+### 3. Create a `.env` File
+
+The CLI loads config in this order:
+1. `--env-file /path/to/.env`
+2. `./.env` (current directory)
+3. Global config path:
+   - Linux/macOS: `~/.config/apkdist/.env`
+   - Windows: `%APPDATA%\\apkdist\\.env`
+
+Example `.env`:
 
 ```env
 # Required
@@ -97,12 +133,12 @@ APP_MODULE_NAME=app
 | `TELEGRAM_CHAT_ID` | ✅ | Telegram chat/group/channel ID to send notifications to |
 | `GOOGLE_APPLICATION_CREDENTIALS` | ⚡ | Path to service account JSON key (for Shared Drives) |
 | `OAUTH_CREDENTIALS_FILE` | ⚡ | Path to OAuth client credentials JSON (for personal accounts) |
-| `OAUTH_TOKEN_FILE` | ❌ | Path to save OAuth token (default: `token.json`) |
+| `OAUTH_TOKEN_FILE` | ❌ | Path to save OAuth token (default: platform config dir `token.json`) |
 | `APP_MODULE_NAME` | ❌ | Android module name (default: `app`) |
 | `GOOGLE_DELEGATE_EMAIL` | ❌ | Email to impersonate via OAuth delegation (for Google Workspace users) |
 | `BUILD_VARIANT` | ❌ | Gradle build variant, passed via `--variant` CLI flag (default: `release`) |
 
-### 3. Android Project Setup
+### 4. Android Project Setup
 
 Your Android module must have a `version.properties` file at `<project>/<module>/version.properties`:
 
@@ -113,7 +149,7 @@ VERSION_NAME=1.0.0
 
 Your `build.gradle` should read from this file to set `versionCode` and `versionName`.
 
-### 4. Google Drive Setup
+### 5. Google Drive Setup
 
 Service accounts created after April 15, 2025 no longer have storage quota ([details](https://forum.rclone.org/t/google-drive-service-account-changes-and-rclone/50136)). Choose the option that matches your account type:
 
@@ -182,7 +218,7 @@ Service accounts created after April 15, 2025 no longer have storage quota ([det
 ## Usage
 
 ```bash
-python main.py <bump_type> [--variant <build_variant>] [--force] [--dry-run]
+apkdist <bump_type> [--variant <build_variant>] [--force] [--dry-run] [--env-file <path>]
 ```
 
 Where `<bump_type>` is one of: `major`, `minor`, or `patch`, and `--variant` is the Gradle build variant (default: `release`).
@@ -199,32 +235,63 @@ Where `<bump_type>` is one of: `major`, `minor`, or `patch`, and `--variant` is 
 
 **Patch release** (1.2.3 → 1.2.4):
 ```bash
-python main.py patch
+apkdist patch
 ```
 
 **Minor release** (1.2.4 → 1.3.0):
 ```bash
-python main.py minor
+apkdist minor
 ```
 
 **Major release** (1.3.0 → 2.0.0):
 ```bash
-python main.py major
+apkdist major
 ```
 
 **Staging variant build**:
 ```bash
-python main.py patch --variant staging
+apkdist patch --variant staging
 ```
 
 **Force rebuild and re-upload**:
 ```bash
-python main.py patch --force
+apkdist patch --force
 ```
 
 **Dry run** (validates config and paths without building, uploading, or notifying):
 ```bash
-python main.py patch --dry-run
+apkdist patch --dry-run
+```
+
+**Explicit env file**:
+```bash
+apkdist patch --env-file ~/.config/apkdist/.env
+```
+
+### Convenience Aliases
+
+These global commands are installed with the package:
+
+```bash
+# Bump aliases (default variant: release)
+apkpatch
+apkminor
+apkmajor
+
+# Pass variant as positional
+apkpatch staging
+apkminor beta
+
+# Or pass variant as flag
+apkmajor --variant production
+
+# Generic bump alias
+apkbump patch staging --dry-run
+
+# Quick helpers
+apkclean --days 14
+apkcheck
+apkcheck --project /path/to/android/project
 ```
 
 ### Example Output
@@ -271,12 +338,39 @@ The script validates the following before running any pipeline step:
 Old APK files pile up on Google Drive. Use the cleanup script to remove them:
 
 ```bash
-python cleanup.py                        # dry-run — lists old APKs without deleting
-python cleanup.py --delete               # lists APKs older than 7 days, asks for confirmation, then deletes
-python cleanup.py --days 14 --delete     # same but for APKs older than 14 days
+apkdist-cleanup                        # dry-run — lists old APKs without deleting
+apkdist-cleanup --delete               # lists APKs older than 7 days, asks for confirmation, then deletes
+apkdist-cleanup --days 14 --delete     # same but for APKs older than 14 days
 ```
 
 The `--delete` flag always shows the file list first and asks for a `y/N` confirmation before removing anything.
+
+## Publishing to PyPI (Maintainers)
+
+1. Bump the version in:
+   - `pyproject.toml` (`[project].version`)
+   - `apkdist/__init__.py` (`__version__`)
+2. Build and validate distributions:
+   ```bash
+   python3 -m pip install --upgrade build twine
+   python3 -m build
+   python3 -m twine check dist/*
+   ```
+3. Upload to TestPyPI (recommended first):
+   ```bash
+   python3 -m twine upload --repository testpypi dist/*
+   ```
+4. Upload to PyPI:
+   ```bash
+   python3 -m twine upload dist/*
+   ```
+5. Verify install in a clean environment:
+   ```bash
+   pipx install apk-distribution-pipeline
+   apkdist --help
+   ```
+
+For CI-based releases, use PyPI Trusted Publishing with a GitHub Actions workflow that runs on version tags.
 
 ## License
 

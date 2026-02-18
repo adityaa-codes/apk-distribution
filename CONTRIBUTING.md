@@ -12,7 +12,9 @@ Thanks for your interest in contributing to APK Distribution Pipeline!
    ```
 3. Install dependencies:
    ```bash
-   pip install -r requirements.txt
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -e .
    ```
 4. Copy `.env.example` to `.env` and fill in your values (see [README](README.md) for details)
 
@@ -25,7 +27,7 @@ Thanks for your interest in contributing to APK Distribution Pipeline!
 2. Make your changes — keep them focused and minimal
 3. Test with `--dry-run` to make sure nothing breaks:
    ```bash
-   python main.py patch --dry-run
+   apkdist patch --dry-run
    ```
 4. Commit with a clear message:
    ```bash
@@ -36,9 +38,9 @@ Thanks for your interest in contributing to APK Distribution Pipeline!
 
 - One feature or fix per PR
 - Describe what changed and why
-- Make sure `env_check.py` and `main.py` pass a syntax check:
+- Make sure core modules pass a syntax check:
   ```bash
-  python -m py_compile main.py && python -m py_compile env_check.py
+  python -m py_compile apkdist/pipeline.py apkdist/env_check.py apkdist/cleanup.py
   ```
 
 ## Reporting Issues
