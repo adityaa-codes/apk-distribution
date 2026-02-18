@@ -12,3 +12,8 @@ token.json
 __pycache__/
 *.pyc
 .venv/
+dist/
+*.egg-info/
+
+# Local release notes (not tracked)
+RELEASE_NOTES.md
