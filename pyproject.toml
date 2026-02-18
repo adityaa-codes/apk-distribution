@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apk-distribution-pipeline"
+version = "1.1.0"
+description = "Build, upload, and notify APK releases from a single CLI"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE.md" }
+authors = [
+  { name = "APK Distribution Contributors" }
+]
+dependencies = [
+  "python-dotenv",
+  "google-api-python-client",
+  "google-auth-httplib2",
+  "google-auth-oauthlib",
+  "requests"
+]
+keywords = ["android", "apk", "google-drive", "telegram", "automation"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12"
+]
+
+[project.scripts]
+apkdist = "apkdist.pipeline:main"
+apkdist-env-check = "apkdist.env_check:main"
+apkdist-cleanup = "apkdist.cleanup:main"
+apkbump = "apkdist.aliases:bump_main"
+apkpatch = "apkdist.aliases:patch_main"
+apkminor = "apkdist.aliases:minor_main"
+apkmajor = "apkdist.aliases:major_main"
+apkclean = "apkdist.aliases:clean_main"
+apkcheck = "apkdist.aliases:check_main"
+
+[tool.setuptools]
+packages = ["apkdist"]
