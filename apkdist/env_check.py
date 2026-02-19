@@ -15,6 +15,19 @@ import subprocess
 from typing import Dict, Optional
 
 
+def _is_android_studio_dir(path: str) -> bool:
+    """Return True when path looks like a real Android Studio install."""
+    if not os.path.isdir(path):
+        return False
+
+    launchers = [
+        os.path.join(path, "bin", "studio.sh"),
+        os.path.join(path, "bin", "studio64.exe"),
+        os.path.join(path, "MacOS", "studio"),
+    ]
+    return any(os.path.isfile(candidate) for candidate in launchers)
+
+
 def find_java() -> Optional[str]:
     """Find Java installation and return its path."""
     java_home = os.getenv("JAVA_HOME")
@@ -46,6 +59,12 @@ def find_java() -> Optional[str]:
 
 def find_android_studio() -> Optional[str]:
     """Find Android Studio installation directory."""
+    env_path = os.getenv("ANDROID_STUDIO_PATH")
+    if env_path:
+        resolved = os.path.abspath(os.path.expanduser(env_path))
+        if _is_android_studio_dir(resolved):
+            return resolved
+
     candidates = [
         os.path.expanduser("~/android-studio"),
         "/opt/android-studio",
@@ -56,7 +75,7 @@ def find_android_studio() -> Optional[str]:
         os.path.join(os.getenv("LOCALAPPDATA", ""), "Android", "Android Studio"),
     ]
     for path in candidates:
-        if os.path.isdir(path):
+        if _is_android_studio_dir(path):
             return path
     return None
 
