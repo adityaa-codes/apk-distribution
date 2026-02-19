@@ -27,7 +27,7 @@ Thanks for your interest in contributing to APK Distribution Pipeline!
 2. Make your changes — keep them focused and minimal
 3. Test with `--dry-run` to make sure nothing breaks:
    ```bash
-   apkdist patch --dry-run
+   apkdist make patch --dry-run
    ```
 4. Commit with a clear message:
    ```bash
