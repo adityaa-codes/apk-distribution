@@ -34,15 +34,7 @@ classifiers = [
 ]
 
 [project.scripts]
-apkdist = "apkdist.pipeline:main"
-apkdist-env-check = "apkdist.env_check:main"
-apkdist-cleanup = "apkdist.cleanup:main"
-apkbump = "apkdist.aliases:bump_main"
-apkpatch = "apkdist.aliases:patch_main"
-apkminor = "apkdist.aliases:minor_main"
-apkmajor = "apkdist.aliases:major_main"
-apkclean = "apkdist.aliases:clean_main"
-apkcheck = "apkdist.aliases:check_main"
+apkdist = "apkdist.cli:main"
 
 [tool.setuptools]
 packages = ["apkdist"]
