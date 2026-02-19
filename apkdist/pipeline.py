@@ -8,19 +8,12 @@ import re
 import subprocess
 import sys
 import time
-from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
-from .config import default_token_path, load_environment, user_config_dir
+from .config import PipelineConfig, load_environment, load_pipeline_config, user_config_dir
+from .drive_auth import get_drive_credentials
 from .env_check import find_android_sdk, find_android_studio, find_java
-
-
-def _require_env(name: str) -> str:
-    value = os.getenv(name)
-    if not value:
-        print(f"❌ Error: Required environment variable '{name}' is not set.")
-        sys.exit(1)
-    return value
+from .telegram import is_cloud_telegram_api, send_release_notification
 
 
 def read_version_name(version_file: str) -> str:
@@ -41,7 +34,7 @@ def bump_version(version_file: str, bump_type: str) -> str:
     """Read version.properties from Android project, bump it, and save it."""
     print(f"🔄 Bumping version ({bump_type})...")
 
-    props: Dict[str, str] = {}
+    props = {}
     try:
         with open(version_file, "r", encoding="utf-8") as handle:
             for line in handle:
@@ -169,76 +162,6 @@ def is_apk_fresh(apk_path: Optional[str], max_age_mins: int = 30) -> bool:
     return age_secs < (max_age_mins * 60)
 
 
-def get_drive_credentials(
-    oauth_credentials_file: Optional[str],
-    oauth_token_file: str,
-    service_account_file: Optional[str],
-):
-    """Return Drive API credentials using OAuth or service account."""
-    scopes = ["https://www.googleapis.com/auth/drive"]
-
-    if oauth_credentials_file:
-        from google.auth.transport.requests import Request
-        from google.oauth2.credentials import Credentials
-        from google_auth_oauthlib.flow import InstalledAppFlow
-
-        creds = None
-        if os.path.isfile(oauth_token_file):
-            creds = Credentials.from_authorized_user_file(oauth_token_file, scopes)
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(oauth_credentials_file, scopes)
-                creds = flow.run_local_server(port=0)
-            Path(oauth_token_file).parent.mkdir(parents=True, exist_ok=True)
-            with open(oauth_token_file, "w", encoding="utf-8") as handle:
-                handle.write(creds.to_json())
-        print("   Using OAuth (personal account)")
-        return creds
-
-    if not service_account_file:
-        print("❌ Error: Drive credentials are not configured.")
-        sys.exit(1)
-
-    from google.oauth2 import service_account
-
-    creds = service_account.Credentials.from_service_account_file(service_account_file, scopes=scopes)
-    print("   Using service account (Shared Drive)")
-    return creds
-
-
-def find_on_drive(
-    drive_folder_id: str,
-    version_name: str,
-    app_name: str,
-    oauth_credentials_file: Optional[str],
-    oauth_token_file: str,
-    service_account_file: Optional[str],
-) -> Optional[str]:
-    """Check if APK for this version already exists on Drive."""
-    from googleapiclient.discovery import build
-
-    try:
-        creds = get_drive_credentials(oauth_credentials_file, oauth_token_file, service_account_file)
-        service = build("drive", "v3", credentials=creds)
-        query = f"name = '{app_name}-v{version_name}.apk' and '{drive_folder_id}' in parents and trashed = false"
-        results = service.files().list(
-            q=query,
-            fields="files(id)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-        ).execute()
-        files = results.get("files", [])
-        if files:
-            file_id = files[0]["id"]
-            return f"https://drive.google.com/uc?export=download&id={file_id}"
-    except Exception as exc:
-        print(f"⚠️  Could not check Drive for existing APK: {exc}")
-
-    return None
-
-
 def upload_to_drive(
     file_path: str,
     version_name: str,
@@ -255,7 +178,11 @@ def upload_to_drive(
     print("☁️ Uploading to Google Drive...")
 
     try:
-        creds = get_drive_credentials(oauth_credentials_file, oauth_token_file, service_account_file)
+        creds = get_drive_credentials(
+            oauth_credentials_file=oauth_credentials_file,
+            oauth_token_file=oauth_token_file,
+            service_account_file=service_account_file,
+        )
         service = build("drive", "v3", credentials=creds)
     except Exception as exc:
         print(f"❌ Google Drive auth failed: {exc}")
@@ -289,59 +216,8 @@ def upload_to_drive(
     return f"https://drive.google.com/uc?export=download&id={file_id}"
 
 
-def send_telegram(
-    version_name: str,
-    direct_link: str,
-    drive_folder_id: str,
-    variant: str,
-    telegram_token: str,
-    chat_id: str,
-) -> None:
-    """Send the formatted Telegram message."""
-    import requests
-
-    print("🚀 Sending Telegram Notification...")
-
-    folder_link = f"https://drive.google.com/drive/folders/{drive_folder_id}"
-    message = (
-        "<b>🚀 New Update Released!</b>\n\n"
-        f"<b>Version:</b> {version_name}\n"
-        f"<b>Branch:</b> {variant.capitalize()}\n\n"
-        "<i>Tap below to update directly.</i>"
-    )
-
-    url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": message,
-        "parse_mode": "HTML",
-        "reply_markup": {
-            "inline_keyboard": [
-                [{"text": "⬇️ Download APK", "url": direct_link}],
-                [{"text": "📂 Open Drive Folder", "url": folder_link}],
-            ]
-        },
-    }
-
-    response = requests.post(url, json=payload, timeout=30)
-    try:
-        ok = response.status_code == 200 and response.json().get("ok")
-    except ValueError:
-        ok = False
-
-    if not ok:
-        print(f"❌ Telegram Error: {response.text}")
-    else:
-        print("✅ Notification Sent!")
-
-
-def validate_environment(config: Dict[str, str]) -> None:
+def validate_environment(config: PipelineConfig) -> None:
     """Validate local machine state and required inputs before execution."""
-    android_root = config["android_root"]
-    gradlew_exec = config["gradlew_exec"]
-    service_account_file = config.get("service_account_file")
-    oauth_credentials_file = config.get("oauth_credentials_file")
-
     studio = find_android_studio()
     if studio:
         print(f"✅ Android Studio found at: {studio}")
@@ -362,10 +238,12 @@ def validate_environment(config: Dict[str, str]) -> None:
     else:
         print("⚠️  Warning: Java not found. Set JAVA_HOME if the build fails.")
 
-    if not os.path.isdir(android_root):
-        print(f"❌ Error: Android project directory not found: {android_root}")
+    if not os.path.isdir(config.android_root):
+        print(f"❌ Error: Android project directory not found: {config.android_root}")
         sys.exit(1)
 
+    is_windows = platform.system() == "Windows"
+    gradlew_exec = os.path.join(config.android_root, "gradlew.bat" if is_windows else "gradlew")
     if not os.path.exists(gradlew_exec):
         print(f"❌ Error: Could not find gradlew at: {gradlew_exec}")
         print("   Check ANDROID_PROJECT_PATH in your .env file.")
@@ -375,16 +253,16 @@ def validate_environment(config: Dict[str, str]) -> None:
         print("⚠️  gradlew is not executable, fixing permissions...")
         os.chmod(gradlew_exec, 0o755)
 
-    if not service_account_file and not oauth_credentials_file:
+    if not config.service_account_file and not config.oauth_credentials_file:
         print("❌ Error: Set GOOGLE_APPLICATION_CREDENTIALS or OAUTH_CREDENTIALS_FILE in .env")
         sys.exit(1)
 
-    if service_account_file and not os.path.isfile(service_account_file):
-        print(f"❌ Error: Service account file not found: {service_account_file}")
+    if config.service_account_file and not os.path.isfile(config.service_account_file):
+        print(f"❌ Error: Service account file not found: {config.service_account_file}")
         sys.exit(1)
 
-    if oauth_credentials_file and not os.path.isfile(oauth_credentials_file):
-        print(f"❌ Error: OAuth credentials file not found: {oauth_credentials_file}")
+    if config.oauth_credentials_file and not os.path.isfile(config.oauth_credentials_file):
+        print(f"❌ Error: OAuth credentials file not found: {config.oauth_credentials_file}")
         sys.exit(1)
 
 
@@ -411,49 +289,47 @@ def main(argv=None):
         print(f"❌ {exc}")
         sys.exit(1)
 
-    android_root = os.path.abspath(_require_env("ANDROID_PROJECT_PATH"))
-    module_name = os.getenv("APP_MODULE_NAME", "app")
-    build_variant = args.variant
-    drive_folder_id = _require_env("DRIVE_FOLDER_ID")
-    telegram_token = _require_env("TELEGRAM_BOT_TOKEN")
-    chat_id = _require_env("TELEGRAM_CHAT_ID")
-    service_account_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    oauth_credentials_file = os.getenv("OAUTH_CREDENTIALS_FILE")
-    oauth_token_file = os.getenv("OAUTH_TOKEN_FILE") or str(default_token_path())
+    try:
+        config = load_pipeline_config(args.variant)
+    except ValueError as exc:
+        print(f"❌ Error: {exc}")
+        sys.exit(1)
 
     is_windows = platform.system() == "Windows"
-    gradlew_exec = os.path.join(android_root, "gradlew.bat" if is_windows else "gradlew")
-    version_file = os.path.join(android_root, module_name, "version.properties")
-    apk_output_dir = os.path.join(android_root, module_name, "build", "outputs", "apk", build_variant)
+    gradlew_exec = os.path.join(config.android_root, "gradlew.bat" if is_windows else "gradlew")
+    version_file = os.path.join(config.android_root, config.module_name, "version.properties")
+    apk_output_dir = os.path.join(
+        config.android_root,
+        config.module_name,
+        "build",
+        "outputs",
+        "apk",
+        config.build_variant,
+    )
 
     if loaded_env:
         print(f"📄 Loaded config: {loaded_env}")
     elif not args.env_file:
         print(f"ℹ️  No .env found in current directory; tried global config at {user_config_dir()}")
 
-    print(f"📁 Project: {android_root}")
+    print(f"📁 Project: {config.android_root}")
     print(f"🔧 Gradle: {gradlew_exec}")
+    if not is_cloud_telegram_api(config.telegram_api_base_url):
+        print("ℹ️  Local Telegram Bot API mode detected — sendDocument is sent as a single message.")
 
-    validate_environment(
-        {
-            "android_root": android_root,
-            "gradlew_exec": gradlew_exec,
-            "service_account_file": service_account_file or "",
-            "oauth_credentials_file": oauth_credentials_file or "",
-        }
-    )
+    validate_environment(config)
 
-    app_name = get_app_name(android_root, module_name, build_variant) or module_name.capitalize()
-    print(f"📦 {app_name} | Module: {module_name} | Variant: {build_variant}")
+    app_name = get_app_name(config.android_root, config.module_name, config.build_variant) or config.module_name.capitalize()
+    print(f"📦 {app_name} | Module: {config.module_name} | Variant: {config.build_variant}")
 
     if args.dry_run:
         print("🧪 Dry-run mode — no changes will be made\n")
         current_version = read_version_name(version_file)
         print(f"🔄 [DRY-RUN] Would bump version ({args.type}) from {current_version}")
 
-        variant_task = build_variant.capitalize()
+        variant_task = config.build_variant.capitalize()
         gradle_cmd = "gradlew.bat" if is_windows else "./gradlew"
-        print(f"🔨 [DRY-RUN] Would run: {gradle_cmd} :{module_name}:assemble{variant_task}")
+        print(f"🔨 [DRY-RUN] Would run: {gradle_cmd} :{config.module_name}:assemble{variant_task}")
 
         apk_path = find_apk_file(apk_output_dir)
         if apk_path:
@@ -461,8 +337,26 @@ def main(argv=None):
         else:
             print(f"📦 [DRY-RUN] No existing APK in {apk_output_dir} (expected after a real build)")
 
-        print(f"☁️  [DRY-RUN] Would upload to Google Drive folder: {drive_folder_id}")
-        print(f"🚀 [DRY-RUN] Would send Telegram notification to chat: {chat_id}")
+        print(f"☁️  [DRY-RUN] Would upload to Google Drive folder: {config.drive_folder_id}")
+        if config.thread_id is None:
+            print(f"🚀 [DRY-RUN] Would send Telegram notification to chat: {config.chat_id}")
+        else:
+            print(
+                f"🚀 [DRY-RUN] Would send Telegram notification to chat: {config.chat_id} "
+                f"(thread: {config.thread_id})"
+            )
+        print(f"🌐 [DRY-RUN] Telegram API base URL: {config.telegram_api_base_url}")
+        if config.send_document:
+            if is_cloud_telegram_api(config.telegram_api_base_url):
+                print(
+                    "📎 [DRY-RUN] Would upload APK via sendDocument when APK size <= "
+                    f"{config.cloud_document_limit_mb} MB (cloud Bot API limit)"
+                )
+                print("📎 [DRY-RUN] If APK exceeds limit, would keep Drive-link only")
+            else:
+                print("📎 [DRY-RUN] Would upload APK to Telegram using sendDocument")
+        else:
+            print("📎 [DRY-RUN] Telegram sendDocument is disabled")
         print("\n✅ Dry-run complete — everything looks good!")
         return
 
@@ -474,44 +368,35 @@ def main(argv=None):
         print(f"⏩ Skipping build — fresh APK found ({age_mins}m old): {existing_apk}")
         print("   Use --force to rebuild anyway.")
     else:
-        build_apk(android_root, module_name, build_variant)
+        build_apk(config.android_root, config.module_name, config.build_variant)
 
     apk_path = find_apk_file(apk_output_dir)
     if not apk_path:
         print(f"❌ Could not find APK in {apk_output_dir}")
         sys.exit(1)
 
-    link = None
-    if not args.force:
-        link = find_on_drive(
-            drive_folder_id=drive_folder_id,
-            version_name=new_version,
-            app_name=app_name,
-            oauth_credentials_file=oauth_credentials_file,
-            oauth_token_file=oauth_token_file,
-            service_account_file=service_account_file,
-        )
-        if link:
-            print(f"⏩ Skipping upload — APK already on Drive for v{new_version}")
+    link = upload_to_drive(
+        file_path=apk_path,
+        version_name=new_version,
+        app_name=app_name,
+        drive_folder_id=config.drive_folder_id,
+        oauth_credentials_file=config.oauth_credentials_file,
+        oauth_token_file=config.oauth_token_file,
+        service_account_file=config.service_account_file,
+    )
 
-    if not link:
-        link = upload_to_drive(
-            file_path=apk_path,
-            version_name=new_version,
-            app_name=app_name,
-            drive_folder_id=drive_folder_id,
-            oauth_credentials_file=oauth_credentials_file,
-            oauth_token_file=oauth_token_file,
-            service_account_file=service_account_file,
-        )
-
-    send_telegram(
+    send_release_notification(
         version_name=new_version,
         direct_link=link,
-        drive_folder_id=drive_folder_id,
-        variant=build_variant,
-        telegram_token=telegram_token,
-        chat_id=chat_id,
+        drive_folder_id=config.drive_folder_id,
+        variant=config.build_variant,
+        telegram_token=config.telegram_token,
+        chat_id=config.chat_id,
+        thread_id=config.thread_id,
+        telegram_api_base_url=config.telegram_api_base_url,
+        apk_path=apk_path,
+        send_document=config.send_document,
+        cloud_document_limit_mb=config.cloud_document_limit_mb,
     )
 
 
