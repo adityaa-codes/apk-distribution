@@ -1,5 +1,7 @@
 .env
 service-account.json
+service-account-backup.json
+service-account-*.json
 credentials.json
 token.json
 
