@@ -3,8 +3,8 @@
 Cleanup script — deletes APK files older than N days from Google Drive.
 
 Usage:
-    apkdist-cleanup                  # dry-run (default)
-    apkdist-cleanup --delete         # actually delete old files from Drive
+    apkdist cleanup                  # dry-run (default)
+    apkdist cleanup --delete         # actually delete old files from Drive
 """
 
 import argparse

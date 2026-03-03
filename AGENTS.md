@@ -1,9 +1,10 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `main.py`: Primary pipeline (`bump -> build -> upload -> notify`).
-- `env_check.py`: Local environment validation (Android Studio/SDK, Java, `gradlew`).
-- `cleanup.py`: Google Drive APK retention cleanup.
+- `apkdist/cli.py`: Unified `apkdist` command surface.
+- `apkdist/pipeline.py`: Primary pipeline (`bump -> build -> upload -> notify`).
+- `apkdist/env_check.py`: Local environment validation (Android Studio/SDK, Java, `gradlew`).
+- `apkdist/cleanup.py`: Google Drive APK retention cleanup.
 - `requirements.txt`: Python dependencies.
 - `.env.example`: Configuration template; copy to `.env` for local runs.
 - `README.md`, `CONTRIBUTING.md`, `RELEASE_NOTES.md`: Setup, contribution flow, and release history.
@@ -12,11 +13,11 @@ This repository is currently script-first (no `src/` or `tests/` directory). Kee
 
 ## Build, Test, and Development Commands
 - `pip install -e .`: Install package in editable mode for development.
-- `apkdist-env-check --project /path/to/android/project`: Validate local Android toolchain.
-- `apkdist patch --dry-run`: Validate pipeline behavior without side effects.
-- `apkdist patch --variant staging --force`: Force a fresh build/upload for a specific variant.
-- `apkdist-cleanup --days 14`: Preview old APKs eligible for deletion.
-- `apkdist-cleanup --days 14 --delete`: Delete old APKs after confirmation.
+- `apkdist env-check --project /path/to/android/project`: Validate local Android toolchain.
+- `apkdist make patch --dry-run`: Validate pipeline behavior without side effects.
+- `apkdist make patch staging --force`: Force a fresh build/upload for a specific variant.
+- `apkdist cleanup --days 14`: Preview old APKs eligible for deletion.
+- `apkdist cleanup --days 14 --delete`: Delete old APKs after confirmation.
 - `python -m py_compile apkdist/pipeline.py apkdist/env_check.py apkdist/cleanup.py`: Quick syntax validation before PR.
 
 ## Coding Style & Naming Conventions
@@ -28,7 +29,7 @@ This repository is currently script-first (no `src/` or `tests/` directory). Kee
 ## Testing Guidelines
 - No formal automated test suite is committed yet.
 - Minimum verification for changes:
-  - Run `apkdist patch --dry-run`.
+  - Run `apkdist make patch --dry-run`.
   - Run `python -m py_compile apkdist/pipeline.py apkdist/env_check.py apkdist/cleanup.py`.
   - Exercise affected flags/paths locally and record expected output in PR notes.
 - If adding tests, use `pytest` with files named `tests/test_<feature>.py`.

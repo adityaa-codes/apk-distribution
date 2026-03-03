@@ -3,7 +3,7 @@
 Helper script to detect Android Studio, Java, and Gradle Wrapper locations.
 
 Usage:
-    apkdist-env-check --project /path/to/android/project
+    apkdist env-check --project /path/to/android/project
 """
 
 import argparse

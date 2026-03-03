@@ -28,5 +28,5 @@ jobs:
       - name: Verify CLI entry points
         run: |
           apkdist --help
-          apkdist-env-check --help
-          apkdist-cleanup --help
+          apkdist env-check --help
+          apkdist cleanup --help
